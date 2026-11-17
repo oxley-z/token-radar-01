@@ -8,7 +8,7 @@
   var DATA = window.RADAR;
   if (!DATA) return;
   var app = document.getElementById('board');
-  var state = { q: '', category: 'all', tab: 'pre-token', sort: 'implied', dir: -1, selected: null };
+  var state = { q: '', category: 'all', tab: 'pre-token', sort: 'implied', dir: -1, selected: null, logScale: false };
 
   var usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
   function fmtUsd(n) {
@@ -149,10 +149,12 @@
     select.addEventListener('change', function () { state.category = select.value; writeHash(); render(); });
     var pre = el('button', { type: 'button', 'aria-pressed': state.tab === 'pre-token' ? 'true' : 'false', text: 'Pre-token', onclick: function () { state.tab = 'pre-token'; writeHash(); render(); } });
     var live = el('button', { type: 'button', 'aria-pressed': state.tab === 'live' ? 'true' : 'false', text: 'Live token', onclick: function () { state.tab = 'live'; writeHash(); render(); } });
+    var scale = el('button', { type: 'button', 'aria-pressed': state.logScale ? 'true' : 'false', text: state.logScale ? 'Log scale' : 'Linear', onclick: function () { state.logScale = !state.logScale; render(); } });
     return el('div', { class: 'controls' },
       el('div', { class: 'field' }, el('label', { for: 'q', text: 'Search' }), search),
       el('div', { class: 'field' }, el('label', { for: 'category', text: 'Category' }), select),
       el('div', { class: 'field' }, el('span', { class: 'sub', text: 'Token status' }), el('div', { class: 'tabs' }, pre, live)),
+      el('div', { class: 'field' }, el('span', { class: 'sub', text: 'Implied-value bars' }), el('div', { class: 'tabs' }, scale)),
       el('span', { class: 'count', text: state.tab === 'pre-token' ? rows().length + ' rows shown' : DATA.live.length + ' live-token protocols' })
     );
   }
@@ -176,6 +178,13 @@
       ));
     }
     var max = list[0].implied_value_usd || 1;
+    // The bar's width: linear by default; log scale keeps the tail readable — the board spans
+    // $150M to $145K, so a linear bar makes every row below the top few look empty.
+    function barWidth(r) {
+      if (!state.logScale) return Math.max(3, Math.round((r.implied_value_usd / max) * 100));
+      var top = Math.log10(max) || 1;
+      return Math.max(3, Math.round((Math.log10(Math.max(1, r.implied_value_usd)) / top) * 100));
+    }
     var tbody = el('tbody');
     list.forEach(function (r) {
       var growth = r.change_7d === null ? 'n/a' : fmtPct(r.change_7d);
@@ -194,7 +203,7 @@
         el('td', { class: 'num ' + growthClass, text: growth }),
         el('td', { class: 'num', text: fmtAge(r.age_days) }),
         el('td', null, el('div', { class: 'implied' },
-          el('div', { class: 'bar', 'aria-hidden': 'true' }, el('i', { style: 'width:' + Math.max(3, Math.round((r.implied_value_usd / max) * 100)) + '%' })),
+          el('div', { class: 'bar', 'aria-hidden': 'true' }, el('i', { style: 'width:' + barWidth(r) + '%' })),
           el('span', { class: 'num', text: fmtUsd(r.implied_value_usd) })
         )),
         el('td', null, el('span', { class: 'status', text: 'no token' }))

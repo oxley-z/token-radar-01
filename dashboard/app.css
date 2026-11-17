@@ -115,27 +115,27 @@ th button:hover { color: var(--text); }
 /* Detail dialog */
 dialog.detail {
   background: var(--panel); color: var(--text); border: 1px solid var(--line);
-  border-radius: 12px; padding: 0; width: min(680px, 94vw); max-height: 88vh; overflow-y: auto;
+  border-radius: 12px; padding: 0; width: min(680px, 94vw); max-height: calc(100vh - 24px); overflow-y: auto;
 }
 dialog.detail::backdrop { background: rgba(3, 7, 10, .7); }
-.detail-head { display: flex; justify-content: space-between; gap: 16px; padding: 18px 20px 12px; border-bottom: 1px solid var(--line); }
+.detail-head { display: flex; justify-content: space-between; gap: 16px; padding: 14px 20px 10px; border-bottom: 1px solid var(--line); }
 .detail-head h2 { margin: 4px 0 2px; font-size: 22px; }
 .detail-head .brand-name { color: var(--accent); font-size: 13px; }
 .close { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; font: inherit; cursor: pointer; height: fit-content; }
-.detail-section { padding: 14px 20px 18px; border-bottom: 1px solid var(--line-soft); }
+.detail-section { padding: 12px 20px 12px; border-bottom: 1px solid var(--line-soft); }
 .detail-section:last-child { border-bottom: 0; }
 .detail-section h3 { margin: 0 0 10px; font-size: 15px; }
 .equation { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 20px; }
-.equation > div { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px dashed var(--line-soft); }
+.equation > div { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px dashed var(--line-soft); }
 .equation span { color: var(--muted); font-size: 13.5px; }
 .equation b { font-weight: 650; }
 .equation .total { grid-column: 1 / -1; }
 .equation .total b { color: var(--amber); font-size: 17px; }
 .steps { margin: 0; padding-left: 22px; }
-.steps li { margin-bottom: 10px; }
+.steps li { margin-bottom: 5px; }
 .steps li b { font-weight: 600; display: block; }
 .steps .cost { color: var(--muted); font-size: 13px; }
-.token-note { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 13.5px; color: var(--muted); }
+.token-note { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font-size: 13.5px; color: var(--muted); }
 .token-note b { color: var(--text); }
 
 footer.foot { color: var(--faint); font-size: 12.5px; padding: 4px 2px 0; }

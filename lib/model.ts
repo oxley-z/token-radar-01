@@ -95,7 +95,7 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it. */
-export const MODEL_VERSION = 'radar-3';
+export const MODEL_VERSION = 'radar-4';
 
 /** How many live-token protocols the Live token view carries, by market cap. */
 export const LIVE_ROWS = 24;
@@ -467,8 +467,141 @@ function secondActionFor(p: SnapshotProtocol, capital: number, chain: string): s
 }
 
 /**
- * A protocol's farm plan: seven steps, each an action with a cost and a time. The plan is derived
+ * One step only the category calls for, so two protocols in different categories get plans
+ * that diverge beyond the main action: a lending market's liquidation check, a bridge's second
+ * destination, a vault's fee schedule. Matched on the category label alone, in the same style
+ * as the main and second actions above — never a list of protocol names — and hedged where the
+ * snapshot cannot prove the feature exists ("if the app offers one", "read ... before ...").
+ * The small amount reuses the second action's size, so the step stays proportionate.
+ */
+function categoryStepFor(p: SnapshotProtocol, capital: number, chain: string): FarmStep {
+  const c = (p.category ?? '').toLowerCase();
+  const name = p.name;
+  const small = Math.max(10, Math.round(capital / 5));
+  if (c.includes('lend') || c.includes('cdp') || c.includes('collateral')) {
+    return {
+      text: `Check the borrow rate and the liquidation threshold on ${name} before borrowing more, and keep the position's health factor above the level the app warns at.`,
+      cost: 'no fee to check',
+      time: '10 minutes',
+    };
+  }
+  if (c.includes('dex') || c.includes('yield') || c.includes('leveraged farm')) {
+    return {
+      text: `Add $${small} to a second pool on ${name} on ${chain} with a different fee tier, so the wallet holds two pools instead of one.`,
+      cost: `$${small} of capital and about $3 of gas`,
+      time: '10 minutes',
+    };
+  }
+  if (c.includes('bridge')) {
+    const other = p.chains.length > 1 ? p.chains[1]! : 'a second chain the bridge supports';
+    return {
+      text: `Bridge $${small} through ${name} to ${other}, so the wallet shows activity on more than one destination chain.`,
+      cost: `$${small} of capital and about $5 of gas`,
+      time: '15 minutes',
+    };
+  }
+  if (c.includes('staking') || c.includes('restak')) {
+    return {
+      text: `Claim the staking rewards on ${name} once and restake them, so the position compounds instead of sitting idle.`,
+      cost: 'about $3 of gas',
+      time: '10 minutes',
+    };
+  }
+  if (c.includes('perpetual') || c.includes('derivative')) {
+    return {
+      text: `Check the funding rate on ${name} before opening the next hedge, and close it if the rate stays against the position for more than a day.`,
+      cost: 'no fee to check',
+      time: '10 minutes',
+    };
+  }
+  if (c.includes('prediction')) {
+    return {
+      text: `Read the market's resolution rules on ${name} before placing the second position, so you know what settles it and when.`,
+      cost: 'no fee to check',
+      time: '10 minutes',
+    };
+  }
+  if (c.includes('curator') || c.includes('allocator')) {
+    return {
+      text: `Read the vault's fee schedule and rebalancing cadence on ${name} before depositing more, so you know what the vault charges and how often it moves.`,
+      cost: 'no fee to check',
+      time: '10 minutes',
+    };
+  }
+  if (c.includes('stable')) {
+    return {
+      text: `Check the redemption route for the stable asset on ${name} — how it converts back to USDC and what it costs — before minting more.`,
+      cost: 'no fee to check',
+      time: '10 minutes',
+    };
+  }
+  if (c.includes('rwa')) {
+    return {
+      text: `Read the redemption terms for the yield asset on ${name}, including any lock-up or minimum holding period, before adding more.`,
+      cost: 'no fee to check',
+      time: '10 minutes',
+    };
+  }
+  if (c.includes('insurance')) {
+    return {
+      text: `Read the claim conditions for the cover on ${name}, including what evidence a claim needs, before buying more cover.`,
+      cost: 'no fee to check',
+      time: '10 minutes',
+    };
+  }
+  if (c.includes('basis')) {
+    return {
+      text: `Check the basis spread on ${name} before opening the next leg, and close the trade if the spread collapses below the level that pays for the hedge.`,
+      cost: 'no fee to check',
+      time: '10 minutes',
+    };
+  }
+  if (c.includes('btc')) {
+    return {
+      text: `Check the wrapped BTC asset's peg against native BTC and its redemption route on ${name} before minting more.`,
+      cost: 'no fee to check',
+      time: '10 minutes',
+    };
+  }
+  if (c.includes('governance')) {
+    return {
+      text: `Vote on an open governance proposal in ${name} if one is open, so the wallet records a governance action as well as deposits.`,
+      cost: 'about $2 of gas to vote',
+      time: '10 minutes',
+    };
+  }
+  if (c.includes('liquidity')) {
+    return {
+      text: `Check whether the liquidity position on ${name} has drifted out of its range, and rebalance it if the app shows it out of range.`,
+      cost: 'about $4 of gas to rebalance',
+      time: '10 minutes',
+    };
+  }
+  if (c.includes('farm')) {
+    return {
+      text: `Harvest the farm rewards on ${name} once and compound them back into the position, so the rewards earn instead of sitting unclaimed.`,
+      cost: 'about $3 of gas',
+      time: '10 minutes',
+    };
+  }
+  if (c.includes('chain')) {
+    return {
+      text: `Run one transaction the chain itself rewards — a native stake or a bridge deposit — so the wallet's activity is on the chain, not only inside one app.`,
+      cost: `about $${small} of capital and $3 of gas`,
+      time: '15 minutes',
+    };
+  }
+  return {
+    text: `Join ${name}'s announcement channel and note the next snapshot or points cut-off date, so the weekly actions land before it.`,
+    cost: 'nothing but the time',
+    time: '10 minutes',
+  };
+}
+
+/**
+ * A protocol's farm plan: eight steps, each an action with a cost and a time. The plan is derived
  * from the protocol's own record (category, chains, TVL, age), never from a hand-written list of names.
+ * The fourth step is the one only its category calls for, so plans in different categories diverge.
  */
 export function farmSteps(p: SnapshotProtocol, age: number | null): FarmStep[] {
   const chain = chainOf(p);
@@ -476,6 +609,7 @@ export function farmSteps(p: SnapshotProtocol, age: number | null): FarmStep[] {
   const hold = holdDaysFor(age);
   const action = actionFor(p, capital, chain);
   const second = secondActionFor(p, capital, chain);
+  const categoryStep = categoryStepFor(p, capital, chain);
   return [
     {
       text: `Use a fresh wallet that holds only the funds you plan to farm, and keep its seed phrase offline.`,
@@ -492,6 +626,7 @@ export function farmSteps(p: SnapshotProtocol, age: number | null): FarmStep[] {
       cost: `about $${Math.max(2, Math.round(capital / 25))} of gas`,
       time: '10 minutes',
     },
+    categoryStep,
     {
       text: `Make one qualifying action each week, such as a deposit, a borrow, a swap or a vote.`,
       cost: 'about $2 of gas a week',
