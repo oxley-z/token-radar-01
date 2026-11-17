@@ -248,14 +248,23 @@
 
   function modelPanel() {
     var m = DATA.model;
+    function sourceNote(t) {
+      if (t.peer_group) return 'peer-group median (curator/allocator) — too few live comps of its own';
+      if (t.fallback) return 'overall median — too few live comps';
+      return 'median of live comps';
+    }
     var multRows = DATA.category_multiples.map(function (t) {
       return el('tr', null,
         el('td', { text: t.category }),
         el('td', { class: 'num', text: 'x' + fmtMult(t.multiple) }),
         el('td', { class: 'num', text: String(t.comps) }),
-        el('td', null, t.fallback ? el('span', { class: 'fb', text: 'overall median — too few live comps' }) : el('span', { class: 'fb', text: 'median of live comps' }))
+        el('td', null, el('span', { class: 'fb', text: sourceNote(t) }))
       );
     });
+    var peerRows = DATA.category_multiples.filter(function (t) { return t.peer_group; });
+    var peerNote = peerRows.length > 0
+      ? el('p', { class: 'sub model-note', text: 'Peer group: curators and allocators run the same business — vaults that take a fee on managed capital — so a category in that group with too few live comps of its own is priced from the pooled median of the group\u2019s live comps (x' + fmtMult(peerRows[0].multiple) + ' from ' + peerRows[0].comps + ' pooled comps here: ' + peerRows.map(function (t) { return t.category; }).join(' and ') + '), instead of the overall median. Only a category with no peer group falls back to the overall median.' })
+      : null;
     return el('section', { class: 'panel model' },
       el('h2', { text: 'How implied value is computed' }),
       el('p', { class: 'sub', text: 'Every row is scored by one function of the snapshot figures. No protocol name is special-cased, and no row is hand-picked.' }),
@@ -265,6 +274,7 @@
         el('span', { text: ' x growth_mult x maturity_mult x chains_mult )' })
       ),
       el('p', { class: 'sub model-note', text: 'Category multiple: the median mcap/TVL of the live-token protocols in the same category, computed from this snapshot (overall median x' + fmtMult(DATA.overall_multiple) + ' when a category has too few live comps). Growth: change_7d clamped to [' + m.growth_floor + ', ' + m.growth_cap + '], linear down to 0.70 for a fall and diminishing for a rise, 1 + ' + m.growth_weight + ' x sqrt(g / 100). Maturity: ' + m.maturity_floor + ' + min(age, ' + m.maturity_days + ') / ' + m.maturity_days + ' x ' + m.maturity_range + ', unknown age counts as ' + m.unknown_age_days + ' days. Chains: 1 + ' + m.chains_step + ' per extra chain, capped at ' + m.chains_cap + '.' }),
+      peerNote,
       el('h3', { class: 'sub', text: 'Category multiples from this snapshot' }),
       el('div', { class: 'table-wrap' },
         el('table', { class: 'mult-table' },
@@ -290,9 +300,11 @@
     writeHash();
     dialog.textContent = '';
     var recomputed = impliedOf(row);
-    var catNote = row.category_fallback
-      ? 'overall median — too few live comps in ' + (row.category || 'this category')
-      : 'median of ' + row.category_comps + ' live comps in ' + (row.category || 'this category');
+    var catNote = row.category_peer_group
+      ? 'peer-group median of ' + row.category_comps + ' pooled curator/allocator comps — too few live comps in ' + (row.category || 'this category')
+      : row.category_fallback
+        ? 'overall median — too few live comps in ' + (row.category || 'this category')
+        : 'median of ' + row.category_comps + ' live comps in ' + (row.category || 'this category');
     dialog.appendChild(el('div', { class: 'detail-head' },
       el('div', null,
         el('span', { class: 'brand-name', text: 'Rank ' + row.rank + ' of ' + DATA.board_size }),

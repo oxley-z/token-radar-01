@@ -14,6 +14,18 @@
 //                       clamped to [0.05, 0.80]. The spread is wide (Lending ~0.13, Dexs ~0.34,
 //                       Bridge ~0.56, Liquid Staking ~0.04): a flat multiple would misprice
 //                       every category at once.
+//   peer group        = curators and allocators run the same business — vaults that take a
+//                       fee on managed capital — so they are one peer group, matched on the
+//                       category name ("curator" or "allocator"). A category in that group with
+//                       fewer than three live comps of its own is priced from the POOLED
+//                       median of the group's live comps, when the pool holds at least three;
+//                       only a category with no peer group falls back to the overall median.
+//                       On this snapshot the pool is three comps (two allocators near 0.01x,
+//                       one risk curator near 2.97x), so the pooled median is 0.0191x and the
+//                       floor lifts it to 0.05x. That matters: Risk Curators is the biggest
+//                       watchlist category (12 of 40), and its one live comp at 2.97x is an
+//                       outlier that would misprice the whole category on its own, while the
+//                       overall median would price it like an average protocol it is not.
 //   growth            = clamp(change_7d, -60, 120) per cent; the multiplier is linear for a
 //                       fall (down to 0.70) and diminishing for a rise, 1 + 0.5*sqrt(g/100):
 //                       a single week's jump is usually a small base or a data jump, so a
@@ -83,7 +95,7 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it. */
-export const MODEL_VERSION = 'radar-2';
+export const MODEL_VERSION = 'radar-3';
 
 /** How many live-token protocols the Live token view carries, by market cap. */
 export const LIVE_ROWS = 24;
@@ -94,6 +106,8 @@ export interface CategoryMultiple {
   multiple: number;
   comps: number;
   fallback: boolean;
+  /** True when the multiple is the curator/allocator peer group's pooled median. */
+  peer_group: boolean;
 }
 
 /** A farm step: the action, what it costs, and how long it takes. */
@@ -124,6 +138,7 @@ export interface BoardRow {
     category_multiple: number;
     category_comps: number;
     category_fallback: boolean;
+    category_peer_group: boolean;
     growth_pct: number;
     growth_multiplier: number;
     maturity_multiplier: number;
@@ -149,6 +164,7 @@ export interface RadarRow {
   category_multiple: number;
   category_comps: number;
   category_fallback: boolean;
+  category_peer_group: boolean;
   growth_multiplier: number;
   maturity_multiplier: number;
   chains_multiplier: number;
@@ -228,11 +244,26 @@ export function isRankable(p: SnapshotProtocol): boolean {
 }
 
 /**
+ * Whether a category belongs to the curator/allocator peer group, matched on the category
+ * name alone: a name holding "curator" or "allocator" names a business that runs vaults and
+ * takes a fee on managed capital. This is a rule over category labels, in the same style as
+ * the farm plan's category matching below — never a list of protocol names.
+ */
+export function isCuratorAllocator(category: string): boolean {
+  const c = category.toLowerCase();
+  return c.includes('curator') || c.includes('allocator');
+}
+
+/**
  * The category multiples, computed from this snapshot's own live-token protocols: for each
  * category, the median mcap/TVL of its live-token protocols (non-CEX, positive TVL and market
- * cap), when it has at least `model.min_category_comps` of them; otherwise the overall median.
- * Every multiple is clamped to [multiple_floor, multiple_cap]. The table covers the categories
- * the board's rows carry, strongest multiple first, so the dashboard can show the whole table.
+ * cap), when it has at least `model.min_category_comps` of them. A thin category in the
+ * curator/allocator peer group is priced from the group's POOLED median instead — the median
+ * of every live comp of every category in the group — when the pool holds at least
+ * `model.min_category_comps` comps; only a thin category with no peer group falls back to
+ * the overall median. Every multiple is clamped to [multiple_floor, multiple_cap]. The table
+ * covers the categories the board's rows carry, strongest multiple first, so the dashboard
+ * can show the whole table.
  */
 export function categoryMultiples(snapshot: Snapshot, model: ModelConstants = MODEL): { overall: number; table: CategoryMultiple[]; lookup: Map<string, CategoryMultiple> } {
   const byCategory = new Map<string, number[]>();
@@ -248,16 +279,25 @@ export function categoryMultiples(snapshot: Snapshot, model: ModelConstants = MO
   }
   const clamp = (n: number): number => Math.min(model.multiple_cap, Math.max(model.multiple_floor, n));
   const overall = all.length > 0 ? clamp(median(all)) : 0.25;
+  // The peer group's pooled evidence: every live comp of every category in the group, so a
+  // thin category is priced by its closest relatives rather than by the whole market.
+  const peerRatios: number[] = [];
+  for (const [cat, ratios] of byCategory) if (isCuratorAllocator(cat)) peerRatios.push(...ratios);
+  const peerMedian = peerRatios.length >= model.min_category_comps ? clamp(median(peerRatios)) : null;
   const table: CategoryMultiple[] = [];
   const lookup = new Map<string, CategoryMultiple>();
   const cats = new Set<string>();
   for (const p of snapshot.protocols) if (p.category !== null) cats.add(p.category);
   for (const cat of [...cats].sort()) {
     const comps = byCategory.get(cat) ?? [];
+    // Own median first; the peer-group pool second, for a thin category inside the group;
+    // the overall median last, for a thin category with no peer group at all.
     const entry: CategoryMultiple =
       comps.length >= model.min_category_comps
-        ? { category: cat, multiple: clamp(median(comps)), comps: comps.length, fallback: false }
-        : { category: cat, multiple: overall, comps: comps.length, fallback: true };
+        ? { category: cat, multiple: clamp(median(comps)), comps: comps.length, fallback: false, peer_group: false }
+        : peerMedian !== null && isCuratorAllocator(cat)
+          ? { category: cat, multiple: peerMedian, comps: peerRatios.length, fallback: true, peer_group: true }
+          : { category: cat, multiple: overall, comps: comps.length, fallback: true, peer_group: false };
     table.push(entry);
     lookup.set(cat, entry);
   }
@@ -276,6 +316,7 @@ export function impliedValue(
   categoryMultiple: number;
   categoryComps: number;
   categoryFallback: boolean;
+  categoryPeerGroup: boolean;
   growthPct: number;
   growthMult: number;
   maturityMult: number;
@@ -287,6 +328,7 @@ export function impliedValue(
   const categoryMultiple = cat !== undefined ? cat.multiple : multiples.overall;
   const categoryComps = cat !== undefined ? cat.comps : 0;
   const categoryFallback = cat === undefined || cat.fallback;
+  const categoryPeerGroup = cat !== undefined && cat.peer_group;
   const rawGrowth = finite(protocol.change_7d, 0);
   const growthPct = Math.min(model.growth_cap, Math.max(model.growth_floor, rawGrowth));
   const growthMult = growthPct <= 0 ? 1 + model.growth_weight * (growthPct / 100) : 1 + model.growth_weight * Math.sqrt(growthPct / 100);
@@ -295,7 +337,7 @@ export function impliedValue(
   const nChains = protocol.chains.length;
   const chainsMult = nChains <= 0 ? 1 : Math.min(model.chains_cap, 1 + model.chains_step * (nChains - 1));
   const implied = Math.max(1, Math.round(protocol.tvl_usd * categoryMultiple * growthMult * maturityMult * chainsMult));
-  return { implied, categoryMultiple, categoryComps, categoryFallback, growthPct, growthMult, maturityMult, chainsMult, age };
+  return { implied, categoryMultiple, categoryComps, categoryFallback, categoryPeerGroup, growthPct, growthMult, maturityMult, chainsMult, age };
 }
 
 /** The snapshot's protocol by slug. */
@@ -347,6 +389,7 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): B
       category_multiple: s.categoryMultiple,
       category_comps: s.categoryComps,
       category_fallback: s.categoryFallback,
+      category_peer_group: s.categoryPeerGroup,
       growth_pct: round4(s.growthPct),
       growth_multiplier: round4(s.growthMult),
       maturity_multiplier: round4(s.maturityMult),
@@ -506,6 +549,7 @@ export function radarRow(row: BoardRow): RadarRow {
     category_multiple: row.model.category_multiple,
     category_comps: row.model.category_comps,
     category_fallback: row.model.category_fallback,
+    category_peer_group: row.model.category_peer_group,
     growth_multiplier: row.model.growth_multiplier,
     maturity_multiplier: row.model.maturity_multiplier,
     chains_multiplier: row.model.chains_multiplier,
